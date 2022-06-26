@@ -16,6 +16,9 @@ import "./interfaces/IClonesTokenfactory.sol";
  * https://eips.ethereum.org/EIPS/eip-1167
  */
 contract ClonesTokenFactory is IClonesTokenFactory, Ownable {
+  /// @notice contract name
+  string public name;
+
   /// @notice current implementation for creating clones
   address public implementation;
 
@@ -34,10 +37,12 @@ contract ClonesTokenFactory is IClonesTokenFactory, Ownable {
    * @dev the new implementation must be a deployed contract
    * emit `ImplementationChanged` event
    */
-  constructor(address _impl) {
+  constructor(string memory _name, address _impl) {
     enforceHasContractCode(_impl);
 
     implementation = _impl;
+
+    name = _name;
 
     emit ImplementationChanged(address(0), _impl);
   }
@@ -92,12 +97,12 @@ contract ClonesTokenFactory is IClonesTokenFactory, Ownable {
   function createClone(string calldata _name, string calldata _symbol)
     external
   {
-    address impl = implementation;
+    address impl = implementation; // gas saving
 
     unchecked {
       numberOfImplClones[impl]++;
     }
-    uint256 id = numberOfImplClones[impl];
+    uint256 id = numberOfImplClones[impl]; // gas saving
 
     address newClone = Clones.clone(impl);
 
@@ -122,12 +127,12 @@ contract ClonesTokenFactory is IClonesTokenFactory, Ownable {
     string calldata _symbol,
     bytes32 salt
   ) external {
-    address impl = implementation;
+    address impl = implementation; // gas saving
 
     unchecked {
       numberOfImplClones[impl]++;
     }
-    uint256 id = numberOfImplClones[impl];
+    uint256 id = numberOfImplClones[impl]; // gas saving
 
     address newClone = Clones.cloneDeterministic(implementation, salt);
 
