@@ -23,13 +23,13 @@ localhost:
 
 ```shell
 npx hardhat node
-npx hardhat run scripts/deploy.js
+npx hardhat run scripts/deployFactory.ts
 ```
 
 custom network (testnets/mainnets):
 
 ```shell
-npx hardhat run scripts/deploy.js --network yourNetwork
+npx hardhat run scripts/deployFactory.ts --network yourNetwork
 ```
 
 ## How the scripts/deployFactory.ts script works
