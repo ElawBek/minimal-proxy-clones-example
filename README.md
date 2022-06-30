@@ -13,7 +13,7 @@ git clone https://github.com/ElawBek/minimal-proxy-clones-example.git
 2. Install NPM packages:
 
 ```shell
-cd minimal-proxy-clones
+cd minimal-proxy-clones-example
 npm install
 ```
 
