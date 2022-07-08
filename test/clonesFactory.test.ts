@@ -1,44 +1,51 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
 
-import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
+import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
+
 import { BigNumber, constants } from "ethers";
-import { id, parseEther } from "ethers/lib/utils";
+import { parseEther, id } from "ethers/lib/utils";
 
 import {
-  ClonesTokenFactory,
   ClonesTokenFactory__factory,
-  TestToken,
   TestToken__factory,
 } from "../typechain-types";
 
+async function deployFixture() {
+  const [owner, alice] = await ethers.getSigners();
+
+  const tokenOneImpl = await new TestToken__factory(owner).deploy();
+  const tokenTwoImpl = await new TestToken__factory(owner).deploy();
+
+  const factory = await new ClonesTokenFactory__factory(owner).deploy(
+    "ClonesTokenFactory",
+    tokenOneImpl.address
+  );
+
+  return { owner, alice, tokenOneImpl, tokenTwoImpl, factory };
+}
+
+async function cloneFixture() {
+  const { factory, alice, owner, tokenOneImpl, tokenTwoImpl } =
+    await loadFixture(deployFixture);
+
+  await factory.createClone("Clone1", "CLN1");
+  await factory.connect(alice).createClone("Clone2", "CLN2");
+
+  // change implementation to TokenTwo
+  await factory.changeImplementation(tokenTwoImpl.address);
+
+  // Create one clone of TokenTwo
+  await factory.createClone("Clone3", "CLN3");
+
+  return { owner, alice, tokenOneImpl, tokenTwoImpl, factory };
+}
+
 describe("Minimal proxy - clones", () => {
-  let owner: SignerWithAddress;
-  let alice: SignerWithAddress;
-
-  let factory: ClonesTokenFactory;
-
-  let tokenOneImpl: TestToken;
-  let tokenTwoImpl: TestToken;
-
-  let clone1: TestToken;
-  let clone2: TestToken;
-  let clone3: TestToken;
-
-  beforeEach(async () => {
-    [owner, alice] = await ethers.getSigners();
-
-    tokenOneImpl = await new TestToken__factory(owner).deploy();
-    tokenTwoImpl = await new TestToken__factory(owner).deploy();
-
-    factory = await new ClonesTokenFactory__factory(owner).deploy(
-      "ClonesTokenFactory",
-      tokenOneImpl.address
-    );
-  });
-
   describe("Deploy", () => {
     it("Factory variables", async () => {
+      const { factory, owner, tokenOneImpl } = await loadFixture(deployFixture);
+
       expect([
         // factory owner
         await factory.owner(),
@@ -57,6 +64,8 @@ describe("Minimal proxy - clones", () => {
     });
 
     it("Initialization of implementation contracts should return an error", async () => {
+      const { tokenOneImpl, tokenTwoImpl } = await loadFixture(deployFixture);
+
       await expect(tokenOneImpl.initialize("Test", "TST")).to.revertedWith(
         "Initializable: contract is already initialized"
       );
@@ -69,26 +78,40 @@ describe("Minimal proxy - clones", () => {
 
   describe("changeImplementation function", () => {
     it("A change by a non-owner should cause an error", async () => {
+      const { factory, alice, tokenTwoImpl } = await loadFixture(deployFixture);
+
       await expect(
         factory.connect(alice).changeImplementation(tokenTwoImpl.address)
       ).to.revertedWith("Ownable: caller is not the owner");
     });
 
     it("Changing to not-contract should return the error", async () => {
-      await expect(factory.changeImplementation(alice.address)).to.revertedWith(
-        "FactoryNewImplementationIsNotContract()"
+      const { factory, alice } = await loadFixture(deployFixture);
+
+      await expect(
+        factory.changeImplementation(alice.address)
+      ).to.revertedWithCustomError(
+        factory,
+        "FactoryNewImplementationIsNotContract"
       );
     });
 
     it("Changing to old implementation should return the error", async () => {
+      const { factory, tokenOneImpl } = await loadFixture(deployFixture);
+
       await expect(
         factory.changeImplementation(tokenOneImpl.address)
-      ).to.revertedWith(
-        "FactoryNewImplementationCannotBeEqualOldImplementation()"
+      ).to.revertedWithCustomError(
+        factory,
+        "FactoryNewImplementationCannotBeEqualOldImplementation"
       );
     });
 
     it("Success changing implementation should emit 'ImplementationChanged' event", async () => {
+      const { factory, tokenOneImpl, tokenTwoImpl } = await loadFixture(
+        deployFixture
+      );
+
       await expect(factory.changeImplementation(tokenTwoImpl.address))
         .to.emit(factory, "ImplementationChanged")
         .withArgs(tokenOneImpl.address, tokenTwoImpl.address);
@@ -99,6 +122,8 @@ describe("Minimal proxy - clones", () => {
 
   describe("createClone function", () => {
     it("Creating a clone should emit 'CloneCreated' event", async () => {
+      const { factory, tokenOneImpl, alice } = await loadFixture(deployFixture);
+
       await expect(
         factory.connect(alice).createClone("Clone1", "CLN1")
       ).to.emit(factory, "CloneCreated");
@@ -109,11 +134,13 @@ describe("Minimal proxy - clones", () => {
     });
 
     it("Check the clone's functionality", async () => {
+      const { factory, tokenOneImpl, alice } = await loadFixture(deployFixture);
+
       await factory.connect(alice).createClone("Clone1", "CLN1");
 
       const clone1Address = await factory.getClone(tokenOneImpl.address, 1);
 
-      clone1 = new TestToken__factory(alice).attach(clone1Address);
+      const clone1 = new TestToken__factory(alice).attach(clone1Address);
 
       expect([
         await clone1.name(),
@@ -132,6 +159,8 @@ describe("Minimal proxy - clones", () => {
 
   describe("createCloneDeterministic function", () => {
     it("The predictCloneAddress function should return the same address that is created in createCloneDeterministic", async () => {
+      const { factory, tokenOneImpl, alice } = await loadFixture(deployFixture);
+
       const predictAddress = await factory
         .connect(alice)
         .predictCloneAddress(id("SUPER_STRONG_SALT_1"));
@@ -151,18 +180,10 @@ describe("Minimal proxy - clones", () => {
   });
 
   describe("Full cycle of app", () => {
-    beforeEach(async () => {
-      await factory.createClone("Clone1", "CLN1");
-      await factory.connect(alice).createClone("Clone2", "CLN2");
-
-      // change implementation to TokenTwo
-      await factory.changeImplementation(tokenTwoImpl.address);
-
-      // Create one clone of TokenTwo
-      await factory.createClone("Clone3", "CLN3");
-    });
-
     it("Find clones", async () => {
+      const { factory, owner, alice, tokenOneImpl, tokenTwoImpl } =
+        await loadFixture(cloneFixture);
+
       expect([
         await factory.getNumberClonesOfImplementation(tokenOneImpl.address),
         await factory.getNumberClonesOfImplementation(tokenTwoImpl.address),
@@ -174,9 +195,9 @@ describe("Minimal proxy - clones", () => {
       const clone3Addr = await factory.getClone(tokenTwoImpl.address, 1);
 
       // attach clones to contracts
-      clone1 = new TestToken__factory(owner).attach(clone1Addr);
-      clone2 = new TestToken__factory(alice).attach(clone2Addr);
-      clone3 = new TestToken__factory(owner).attach(clone3Addr);
+      const clone1 = new TestToken__factory(owner).attach(clone1Addr);
+      const clone2 = new TestToken__factory(alice).attach(clone2Addr);
+      const clone3 = new TestToken__factory(owner).attach(clone3Addr);
 
       // check clone1
       expect([
@@ -201,13 +222,16 @@ describe("Minimal proxy - clones", () => {
     });
 
     it("Token functionality in clones", async () => {
+      const { factory, owner, alice, tokenOneImpl, tokenTwoImpl } =
+        await loadFixture(cloneFixture);
+
       // find clones
       const clone1Addr = await factory.getClone(tokenOneImpl.address, 1);
       const clone3Addr = await factory.getClone(tokenTwoImpl.address, 1);
 
       // attach clones to contracts
-      clone1 = new TestToken__factory(owner).attach(clone1Addr);
-      clone3 = new TestToken__factory(owner).attach(clone3Addr);
+      const clone1 = new TestToken__factory(owner).attach(clone1Addr);
+      const clone3 = new TestToken__factory(owner).attach(clone3Addr);
 
       await expect(() =>
         clone1.mint(owner.address, parseEther("1000"))

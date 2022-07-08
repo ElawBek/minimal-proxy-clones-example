@@ -1,5 +1,6 @@
-import { parseEther } from "ethers/lib/utils";
 import { ethers, run } from "hardhat";
+
+import { parseEther } from "ethers/lib/utils";
 
 import {
   ClonesTokenFactory__factory,
